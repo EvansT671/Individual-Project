@@ -1,0 +1,403 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Premier League Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/vega@5"></script>
+<script src="https://cdn.jsdelivr.net/npm/vega-lite@5"></script>
+<script src="https://cdn.jsdelivr.net/npm/vega-embed@6"></script>
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+</head>
+<body>
+
+<h1>Premier League Dashboard</h1>
+
+<div class="controls">
+<label>Season
+<select id="season">
+<option value="2024-25">2024/25</option>
+<option value="2023-24">2023/24</option>
+<option value="2022-23">2022/23</option>
+</select>
+</label>
+
+<label>Team 1
+<select id="team1">
+<option>Arsenal</option>
+<option>Liverpool</option>
+<option>Man Utd</option>
+</select>
+</label>
+
+<label>Team 2
+<select id="team2">
+<option>Liverpool</option>
+<option>Arsenal</option>
+<option>Man Utd</option>
+</select>
+</label>
+
+<label>Statistic
+<select id="stat">
+<option value="totalScoringAtt">Shots</option>
+<option value="ontargetScoringAtt">Shots on Target</option>
+<option value="cornerTaken">Corners</option>
+<option value="possessionPercentage">Possession (%)</option>
+<option value="totalTackle">Tackles</option>
+</select>
+</label>
+</div>
+
+<p id="status">Loading data...</p>
+
+<section>
+<h2>Performance by Gameweek</h2>
+<div id="lineChart"></div>
+</section>
+
+<section>
+<h2>Team Comparison</h2>
+<div id="barChart"></div>
+</section>
+
+<section>
+<h2>Team Comparison – Spider Chart</h2>
+<p>Comparing teams across five performance categories.</p>
+<div id="spiderChart"></div>
+</section>
+
+<script>
+const labels = {
+    totalScoringAtt: "Shots",
+    ontargetScoringAtt: "Shots on Target",
+    cornerTaken: "Corners",
+    possessionPercentage: "Possession (%)",
+    totalTackle: "Tackles"
+};
+
+let data = [];
+
+async function loadData() {
+    const season = document.getElementById("season").value;
+    document.getElementById("status").textContent = "Loading data...";
+
+    try {
+        const url = `https://raw.githubusercontent.com/imadeddine-belkat/Premier-League-Stats/main/pl_stats/_merged/events/${season}_events_stats.csv`;
+        const response = await fetch(url);
+
+        if (!response.ok) throw new Error("Could not load the season CSV.");
+
+        const csv = await response.text();
+        data = Papa.parse(csv, {
+            header: true,
+            skipEmptyLines: true,
+            transformHeader: header => header.trim()
+        }).data;
+
+        if (!data.length || !("team" in data[0]) || !("gameweek" in data[0])) {
+            throw new Error("The CSV columns are not in the expected format.");
+        }
+
+        const teams = [...new Set(data.map(row => row.team))];
+        ["team1", "team2"].forEach(id => {
+            const select = document.getElementById(id);
+            const previous = select.value;
+            select.innerHTML = "";
+
+            ["Arsenal", "Liverpool", "Man Utd"].filter(team => teams.includes(team)).forEach(team => {
+                const option = document.createElement("option");
+                option.value = team;
+                option.textContent = team;
+                select.appendChild(option);
+            });
+
+            if ([...select.options].some(option => option.value === previous)) {
+                select.value = previous;
+            }
+        });
+
+        updateCharts();
+    } catch (error) {
+        document.getElementById("status").textContent = error.message;
+    }
+}
+
+async function drawChart(element, specification) {
+    const container = document.getElementById(element);
+    container.innerHTML = "";
+
+    try {
+        await vegaEmbed(container, specification, {
+            actions: false,
+            renderer: "svg"
+        });
+    } catch (error) {
+        container.textContent = "Chart error: " + error.message;
+        console.error(error);
+    }
+}
+
+function updateSpiderChart(team1, team2) {
+    const stats = [
+        "totalScoringAtt",
+        "ontargetScoringAtt",
+        "cornerTaken",
+        "possessionPercentage",
+        "totalTackle"
+    ];
+
+    const centreX = 250;
+    const centreY = 200;
+    const radius = 130;
+    const angles = stats.map((_, i) =>
+        (2 * Math.PI * i / stats.length) - Math.PI / 2
+    );
+
+    const averages = {};
+
+    [team1, team2].forEach(team => {
+        averages[team] = stats.map(stat => {
+            const values = data
+                .filter(row => row.team === team &&
+                    row[stat] !== "" &&
+                    Number.isFinite(Number(row[stat])))
+                .map(row => Number(row[stat]));
+
+            return values.length
+                ? values.reduce((a, b) => a + b, 0) / values.length
+                : 0;
+        });
+    });
+
+    const colours = ["#4e79a7", "#e15759"];
+
+    let svg = `<svg width="500" height="400" viewBox="0 0 500 400">`;
+
+    [25, 50, 75, 100].forEach(level => {
+        const points = angles.map(angle => {
+            const distance = radius * level / 100;
+            return `${centreX + distance * Math.cos(angle)},${centreY + distance * Math.sin(angle)}`;
+        }).join(" ");
+
+        svg += `<polygon points="${points}" fill="none" stroke="#cccccc" stroke-dasharray="4"/>`;
+    });
+
+    stats.forEach((stat, i) => {
+        const angle = angles[i];
+        const x = centreX + radius * Math.cos(angle);
+        const y = centreY + radius * Math.sin(angle);
+
+        svg += `<line x1="${centreX}" y1="${centreY}" x2="${x}" y2="${y}" stroke="#aaaaaa"/>`;
+
+        const labelX = centreX + (radius + 30) * Math.cos(angle);
+        const labelY = centreY + (radius + 30) * Math.sin(angle);
+
+        svg += `<text x="${labelX}" y="${labelY}" text-anchor="middle" font-size="12" fill="#183153">${labels[stat]}</text>`;
+    });
+
+    [team1, team2].forEach((team, teamIndex) => {
+        const scores = averages[team].map((value, i) => {
+            const max = Math.max(averages[team1][i], averages[team2][i]) || 1;
+            return value / max * 100;
+        });
+
+        const points = scores.map((score, i) => {
+            const distance = radius * score / 100;
+            return `${centreX + distance * Math.cos(angles[i])},${centreY + distance * Math.sin(angles[i])}`;
+        }).join(" ");
+
+        svg += `<polygon points="${points}" fill="${colours[teamIndex]}" fill-opacity="0.2" stroke="${colours[teamIndex]}" stroke-width="3"/>`;
+    });
+
+    svg += `</svg>`;
+
+    document.getElementById("spiderChart").innerHTML = `
+        ${svg}
+        <p>
+            <span style="color:#4e79a7">● ${team1}</span>
+            &nbsp;&nbsp;
+            <span style="color:#e15759">● ${team2}</span>
+        </p>
+    `;
+}
+
+function updateCharts() {
+    if (!data.length) return;
+
+    const team1 = document.getElementById("team1").value;
+    const team2 = document.getElementById("team2").value;
+    const stat = document.getElementById("stat").value;
+
+    const selected = data.filter(row =>
+        [team1, team2].includes(row.team) &&
+        row[stat] !== "" &&
+        row[stat] != null &&
+        Number.isFinite(Number(row[stat]))
+    );
+
+    if (!selected.length) {
+        document.getElementById("status").textContent =
+            "No records found. Choose another team or season.";
+        document.getElementById("lineChart").innerHTML = "";
+        document.getElementById("barChart").innerHTML = "";
+        document.getElementById("spiderChart").innerHTML = "";
+        return;
+    }
+
+    const weekly = [];
+
+    [team1, team2].forEach(team => {
+        const weeks = [...new Set(
+            selected.filter(row => row.team === team).map(row => Number(row.gameweek))
+        )].sort((a, b) => a - b);
+
+        weeks.forEach(week => {
+            const matches = selected.filter(row =>
+                row.team === team && Number(row.gameweek) === week
+            );
+
+            weekly.push({
+                team,
+                gameweek: week,
+                value: Math.round(
+                    matches.reduce((sum, row) => sum + Number(row[stat]), 0) / matches.length
+                )
+            });
+        });
+    });
+
+    const bars = [team1, team2].map(team => {
+        const values = weekly.filter(row => row.team === team);
+        return {
+            team,
+            value: values.length
+                ? Math.round(values.reduce((sum, row) => sum + row.value, 0) / values.length)
+                : 0
+        };
+    });
+
+    const config = {
+        background: "white",
+        view: { stroke: null },
+        axis: { gridColor: "#e5e7eb" }
+    };
+
+    const lineSpec = {
+        $schema: "https://vega.github.io/schema/vega-lite/v5.json",
+        data: { values: weekly },
+        width: 650,
+        height: 300,
+        mark: { type: "line", point: { size: 60 }, strokeWidth: 3 },
+        encoding: {
+            x: {
+                field: "gameweek",
+                type: "quantitative",
+                title: "Gameweek",
+                axis: { tickMinStep: 1, format: "d" }
+            },
+            y: {
+                field: "value",
+                type: "quantitative",
+                title: labels[stat],
+                axis: { format: ".0f" }
+            },
+            color: {
+                field: "team",
+                type: "nominal",
+                title: "Team",
+                scale: { scheme: "tableau10" }
+            },
+            tooltip: [
+                { field: "team", title: "Team" },
+                { field: "gameweek", title: "Gameweek" },
+                { field: "value", title: labels[stat], format: ".0f" }
+            ]
+        },
+        config
+    };
+
+    const barSpec = {
+        $schema: "https://vega.github.io/schema/vega-lite/v5.json",
+        data: { values: bars },
+        width: 650,
+        height: 250,
+        mark: { type: "bar", cornerRadiusEnd: 5 },
+        encoding: {
+            x: { field: "team", type: "nominal", title: "Team" },
+            y: {
+                field: "value",
+                type: "quantitative",
+                title: "Average " + labels[stat],
+                axis: { format: ".0f" }
+            },
+            color: {
+                field: "team",
+                type: "nominal",
+                legend: null,
+                scale: { scheme: "tableau10" }
+            },
+            tooltip: [
+                { field: "team", title: "Team" },
+                { field: "value", title: labels[stat], format: ".0f" }
+            ]
+        },
+        config
+    };
+
+    document.getElementById("status").textContent =
+        labels[stat] + " — " + team1 + " vs " + team2;
+
+    drawChart("lineChart", lineSpec);
+    drawChart("barChart", barSpec);
+    updateSpiderChart(team1, team2);
+}
+
+document.getElementById("season").addEventListener("change", loadData);
+document.getElementById("team1").addEventListener("change", updateCharts);
+document.getElementById("team2").addEventListener("change", updateCharts);
+document.getElementById("stat").addEventListener("change", updateCharts);
+
+loadData();
+</script>
+
+<style>
+body {
+    font-family: Arial, sans-serif;
+    margin: 25px;
+    background: #f3f5f8;
+    color: #183153;
+}
+
+.controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 15px;
+    background: white;
+    padding: 15px;
+}
+
+select {
+    display: block;
+    margin-top: 5px;
+    padding: 8px;
+}
+
+section {
+    background: white;
+    padding: 15px;
+    margin-top: 20px;
+    overflow-x: auto;
+}
+
+h1, h2 {
+    color: #17365d;
+}
+
+#status {
+    color: #444;
+}
+</style>
+
+</body>
+</html>
