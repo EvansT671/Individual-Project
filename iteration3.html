@@ -1,0 +1,1198 @@
+ 
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Premier League Statistics Dashboard</title>
+
+    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/vega@5"></script>
+    <script src="https://cdn.jsdelivr.net/npm/vega-lite@5"></script>
+    <script src="https://cdn.jsdelivr.net/npm/vega-embed@6"></script>
+</head>
+
+<body>
+
+<header>
+    <h1>Premier League Statistics Dashboard</h1>
+    <p>Explore team performances across Premier League seasons</p>
+</header>
+
+<main>
+
+    <div class="controls">
+        <label for="seasonSelect">Season</label>
+        <select id="seasonSelect">
+            <option value="2024-25">2024/25</option>
+            <option value="2023-24">2023/24</option>
+            <option value="2022-23">2022/23</option>
+        </select>
+    </div>
+
+    <nav class="tabs">
+        <button class="tab active" data-tab="overview">Overview</button>
+        <button class="tab" data-tab="comparison">Team Comparison</button>
+        <button class="tab" data-tab="heatmap">Heatmap</button>
+        <button class="tab" data-tab="race">Points Race</button>
+    </nav>
+
+    <section id="overview" class="tab-content active">
+        <h2>Team Overview</h2>
+
+        <div class="controls">
+            <label for="teamSelect">Select team</label>
+            <select id="teamSelect"></select>
+
+            <label for="overviewStat">Statistic</label>
+            <select id="overviewStat">
+                <option value="totalScoringAtt">Total Shots</option>
+                <option value="ontargetScoringAtt">Shots on Target</option>
+                <option value="expectedGoals">Expected Goals</option>
+                <option value="possessionPercentage">Possession</option>
+                <option value="cornerTaken">Corners</option>
+                <option value="totalTackle">Tackles</option>
+            </select>
+        </div>
+
+        <div class="summary-grid">
+            <div class="summary-card">
+                <h3>Average Shots</h3>
+                <p id="averageShots">-</p>
+            </div>
+            <div class="summary-card">
+                <h3>Average Possession</h3>
+                <p id="averagePossession">-</p>
+            </div>
+            <div class="summary-card">
+                <h3>Average xG</h3>
+                <p id="averageXG">-</p>
+            </div>
+        </div>
+
+        <div class="chart-card">
+            <h3>Performance Throughout the Season</h3>
+            <div id="lineChart" class="chart"></div>
+            <p id="lineError" class="chart-error"></p>
+        </div>
+    </section>
+
+    <section id="comparison" class="tab-content">
+        <h2>Team Comparison</h2>
+
+        <div class="controls">
+            <label for="teamOneSelect">First team</label>
+            <select id="teamOneSelect"></select>
+
+            <label for="teamTwoSelect">Second team</label>
+            <select id="teamTwoSelect"></select>
+
+            <label for="comparisonStat">Statistic</label>
+            <select id="comparisonStat">
+                <option value="totalScoringAtt">Total Shots</option>
+                <option value="ontargetScoringAtt">Shots on Target</option>
+                <option value="expectedGoals">Expected Goals</option>
+                <option value="possessionPercentage">Possession</option>
+                <option value="cornerTaken">Corners</option>
+                <option value="totalTackle">Tackles</option>
+            </select>
+        </div>
+
+        <div class="chart-card">
+            <h3>Statistical Comparison</h3>
+            <div id="barChart" class="chart"></div>
+            <p id="barError" class="chart-error"></p>
+        </div>
+
+        <div class="chart-card">
+            <h3>Team Performance Profile</h3>
+            <div id="spiderChart" class="chart"></div>
+            <p id="spiderError" class="chart-error"></p>
+        </div>
+    </section>
+
+    <section id="heatmap" class="tab-content">
+        <h2>League Performance Heatmap</h2>
+
+        <div class="controls">
+            <label for="heatmapStat">Statistic</label>
+            <select id="heatmapStat">
+                <option value="totalScoringAtt">Total Shots</option>
+                <option value="ontargetScoringAtt">Shots on Target</option>
+                <option value="expectedGoals">Expected Goals</option>
+                <option value="possessionPercentage">Possession</option>
+                <option value="cornerTaken">Corners</option>
+                <option value="totalTackle">Tackles</option>
+            </select>
+        </div>
+
+        <div class="chart-card">
+            <h3>Team Statistics by Gameweek</h3>
+            <div id="heatmapChart" class="chart"></div>
+            <p id="heatmapError" class="chart-error"></p>
+        </div>
+    </section>
+
+    <section id="race" class="tab-content">
+        <h2>Premier League Points Race</h2>
+
+        <p class="description">
+            Follow how the league table develops throughout the season.
+        </p>
+
+        <div class="race-controls">
+            <button id="playRace">Play</button>
+            <button id="pauseRace">Pause</button>
+            <button id="restartRace">Restart</button>
+        </div>
+
+        <div class="slider-container">
+            <label for="gameweekSlider">
+                Gameweek: <span id="gameweekValue">1</span>
+            </label>
+            <input type="range" id="gameweekSlider" min="1" max="38" value="1">
+        </div>
+
+        <p id="raceStatus">Waiting for match results...</p>
+
+        <div class="chart-card">
+            <div id="raceChart" class="chart"></div>
+            <p id="raceError" class="chart-error"></p>
+        </div>
+    </section>
+
+    <p id="mainStatus">Loading data...</p>
+
+</main>
+
+<script>
+
+const statsBaseURL = "https://raw.githubusercontent.com/imadeddine-belkat/Premier-League-Stats/main/pl_stats/_merged/events/";
+const resultsBaseURL = "https://www.football-data.co.uk/mmz4281/";
+
+const seasonCodes = {
+    "2024-25": "2425",
+    "2023-24": "2324",
+    "2022-23": "2223"
+};
+
+const clubColours = {
+    "Arsenal": "#EF0107",
+    "Liverpool": "#C8102E",
+    "Manchester City": "#6CABDD",
+    "Manchester United": "#DA291C",
+    "Chelsea": "#034694",
+    "Tottenham Hotspur": "#132257",
+    "Newcastle United": "#241F20",
+    "Brighton and Hove Albion": "#0057B8",
+    "Aston Villa": "#670E36",
+    "West Ham United": "#7A263A",
+    "Crystal Palace": "#1B458F",
+    "Everton": "#003399",
+    "Wolverhampton Wanderers": "#FDB913",
+    "Brentford": "#E30613",
+    "Fulham": "#000000",
+    "AFC Bournemouth": "#DA291C",
+    "Nottingham Forest": "#DD0000",
+    "Leicester City": "#003090",
+    "Leeds United": "#FFCD00",
+    "Southampton": "#D71920",
+    "Burnley": "#6C1D45",
+    "Ipswich Town": "#003399",
+    "Sunderland": "#EB172B"
+};
+
+let allData = [];
+let resultsData = [];
+let teams = [];
+let completedMatches = [];
+let maximumGameweek = 38;
+let raceInterval = null;
+let raceAvailable = false;
+
+const seasonSelect = document.getElementById("seasonSelect");
+const mainStatus = document.getElementById("mainStatus");
+const raceStatus = document.getElementById("raceStatus");
+
+function numberValue(value) {
+    const number = Number(value);
+    return Number.isFinite(number) ? number : 0;
+}
+
+function getTeamColour(team) {
+    return clubColours[team] || "#777777";
+}
+
+function getTeamAverage(team, statistic) {
+    const rows = allData.filter(row => row.team === team);
+
+    if (!rows.length) return 0;
+
+    const total = rows.reduce((sum, row) => {
+        return sum + numberValue(row[statistic]);
+    }, 0);
+
+    return total / rows.length;
+}
+
+async function renderChart(elementId, errorId, spec) {
+    const chart = document.getElementById(elementId);
+    const error = document.getElementById(errorId);
+
+    chart.innerHTML = "";
+    error.textContent = "";
+
+    try {
+        await vegaEmbed(chart, spec, {
+            actions: false,
+            renderer: "canvas"
+        });
+    } catch (err) {
+        console.error(elementId, err);
+        error.textContent = "Chart error: " + err.message;
+    }
+}
+
+async function loadStats(season) {
+    const response = await fetch(statsBaseURL + season + "_events_stats.csv");
+
+    if (!response.ok) {
+        throw new Error("Could not load the statistics CSV.");
+    }
+
+    const csvText = await response.text();
+
+    return new Promise((resolve, reject) => {
+        Papa.parse(csvText, {
+            header: true,
+            skipEmptyLines: true,
+            complete: results => resolve(results.data),
+            error: reject
+        });
+    });
+}
+
+function normaliseTeamName(name) {
+    const aliases = {
+        "man united": "manchester united",
+        "man utd": "manchester united",
+        "manchester utd": "manchester united",
+        "manchester united": "manchester united",
+        "man city": "manchester city",
+        "manchester city": "manchester city",
+        "spurs": "tottenham hotspur",
+        "tottenham": "tottenham hotspur",
+        "tottenham hotspur": "tottenham hotspur",
+        "wolves": "wolverhampton wanderers",
+        "wolverhampton": "wolverhampton wanderers",
+        "wolverhampton wanderers": "wolverhampton wanderers",
+        "nott'm forest": "nottingham forest",
+        "notts forest": "nottingham forest",
+        "nottingham forest": "nottingham forest",
+        "brighton": "brighton and hove albion",
+        "brighton and hove": "brighton and hove albion",
+        "brighton and hove albion": "brighton and hove albion",
+        "newcastle": "newcastle united",
+        "newcastle utd": "newcastle united",
+        "newcastle united": "newcastle united",
+        "west ham": "west ham united",
+        "west ham united": "west ham united",
+        "leicester": "leicester city",
+        "leicester city": "leicester city",
+        "leeds": "leeds united",
+        "leeds united": "leeds united",
+        "ipswich": "ipswich town",
+        "ipswich town": "ipswich town",
+        "bournemouth": "afc bournemouth",
+        "afc bournemouth": "afc bournemouth"
+    };
+
+    const cleanName = String(name || "").trim().toLowerCase().replace(/\s+/g, " ");
+
+    return aliases[cleanName] || cleanName;
+}
+
+function parseResultDate(date) {
+    if (!date) return "";
+
+    const value = String(date).trim();
+
+    if (value.includes("/")) {
+        const parts = value.split("/");
+
+        if (parts.length !== 3) return "";
+
+        const year = parts[2].length === 2 ? "20" + parts[2] : parts[2];
+
+        return year + "-" + parts[1].padStart(2, "0") + "-" + parts[0].padStart(2, "0");
+    }
+
+    const match = value.match(/^(\d{4}-\d{2}-\d{2})/);
+
+    return match ? match[1] : "";
+}
+
+function getDateDifference(dateOne, dateTwo) {
+    if (!dateOne || !dateTwo) return 999;
+
+    const first = new Date(dateOne + "T00:00:00");
+    const second = new Date(dateTwo + "T00:00:00");
+
+    if (isNaN(first.getTime()) || isNaN(second.getTime())) return 999;
+
+    return Math.abs(first - second) / (1000 * 60 * 60 * 24);
+}
+
+async function loadResults(season) {
+    const response = await fetch(resultsBaseURL + seasonCodes[season] + "/E0.csv");
+
+    if (!response.ok) {
+        throw new Error("Could not access the match-results source.");
+    }
+
+    const csvText = await response.text();
+
+    resultsData = await new Promise((resolve, reject) => {
+        Papa.parse(csvText, {
+            header: true,
+            skipEmptyLines: true,
+            complete: results => resolve(results.data),
+            error: reject
+        });
+    });
+
+    resultsData = resultsData.filter(row =>
+        row.HomeTeam &&
+        row.AwayTeam &&
+        row.FTHG !== "" &&
+        row.FTHG !== undefined &&
+        row.FTAG !== "" &&
+        row.FTAG !== undefined
+    );
+
+    buildCompletedMatches();
+}
+
+function buildCompletedMatches() {
+    const statsMatches = {};
+
+    allData.forEach(row => {
+        if (!row.matchId) return;
+
+        if (!statsMatches[row.matchId]) {
+            statsMatches[row.matchId] = {
+                gameweek: numberValue(row.gameweek),
+                date: parseResultDate(row.kickoff),
+                home: "",
+                away: ""
+            };
+        }
+
+        if (String(row.venue).trim().toLowerCase() === "home") {
+            statsMatches[row.matchId].home = row.team;
+        }
+
+        if (String(row.venue).trim().toLowerCase() === "away") {
+            statsMatches[row.matchId].away = row.team;
+        }
+    });
+
+    const preparedResults = resultsData.map(result => ({
+        date: parseResultDate(result.Date),
+        home: normaliseTeamName(result.HomeTeam),
+        away: normaliseTeamName(result.AwayTeam),
+        homeGoals: Number(result.FTHG),
+        awayGoals: Number(result.FTAG)
+    })).filter(result =>
+        result.date &&
+        result.home &&
+        result.away &&
+        Number.isFinite(result.homeGoals) &&
+        Number.isFinite(result.awayGoals)
+    );
+
+    completedMatches = [];
+    const usedResults = new Set();
+
+    Object.values(statsMatches).forEach(match => {
+        if (!match.home || !match.away) return;
+
+        const homeName = normaliseTeamName(match.home);
+        const awayName = normaliseTeamName(match.away);
+
+        const possibleResults = preparedResults
+            .map((result, index) => ({
+                result,
+                index,
+                difference: getDateDifference(match.date, result.date)
+            }))
+            .filter(item =>
+                item.result.home === homeName &&
+                item.result.away === awayName &&
+                item.difference <= 1 &&
+                !usedResults.has(item.index)
+            )
+            .sort((a, b) => a.difference - b.difference);
+
+        if (!possibleResults.length) return;
+
+        const selected = possibleResults[0];
+        usedResults.add(selected.index);
+
+        completedMatches.push({
+            gameweek: match.gameweek,
+            home: match.home,
+            away: match.away,
+            homeGoals: selected.result.homeGoals,
+            awayGoals: selected.result.awayGoals
+        });
+    });
+
+    completedMatches.sort((a, b) => a.gameweek - b.gameweek);
+
+    raceAvailable = completedMatches.length > 0;
+
+    raceStatus.textContent = raceAvailable
+        ? completedMatches.length + " of " + preparedResults.length + " match results matched successfully."
+        : "No matches could be matched. Check the statistics and results data.";
+
+    console.log("Statistics matches:", Object.keys(statsMatches).length);
+    console.log("Results available:", preparedResults.length);
+    console.log("Matches successfully matched:", completedMatches.length);
+}
+
+function populateTeamSelects() {
+    teams = [...new Set(allData.map(row => row.team))]
+        .filter(Boolean)
+        .sort();
+
+    const selectors = [
+        document.getElementById("teamSelect"),
+        document.getElementById("teamOneSelect"),
+        document.getElementById("teamTwoSelect")
+    ];
+
+    selectors.forEach(select => {
+        select.innerHTML = "";
+
+        teams.forEach(team => {
+            const option = document.createElement("option");
+            option.value = team;
+            option.textContent = team;
+            select.appendChild(option);
+        });
+    });
+
+    if (teams.length > 1) {
+        document.getElementById("teamTwoSelect").selectedIndex = 1;
+    }
+}
+
+function updateOverview() {
+    const team = document.getElementById("teamSelect").value;
+
+    document.getElementById("averageShots").textContent =
+        getTeamAverage(team, "totalScoringAtt").toFixed(1);
+
+    document.getElementById("averagePossession").textContent =
+        getTeamAverage(team, "possessionPercentage").toFixed(1) + "%";
+
+    document.getElementById("averageXG").textContent =
+        getTeamAverage(team, "expectedGoals").toFixed(2);
+}
+
+async function drawLineChart() {
+    const team = document.getElementById("teamSelect").value;
+    const statistic = document.getElementById("overviewStat").value;
+
+    const values = allData
+        .filter(row => row.team === team)
+        .map(row => ({
+            gameweek: numberValue(row.gameweek),
+            value: numberValue(row[statistic])
+        }))
+        .filter(row => row.gameweek > 0);
+
+    const spec = {
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "width": 650,
+        "height": 300,
+        "data": {"values": values},
+        "mark": {
+            "type": "line",
+            "point": true,
+            "color": getTeamColour(team)
+        },
+        "encoding": {
+            "x": {
+                "field": "gameweek",
+                "type": "quantitative",
+                "title": "Gameweek"
+            },
+            "y": {
+                "field": "value",
+                "type": "quantitative",
+                "title": statistic
+            },
+            "tooltip": [
+                {"field": "gameweek", "title": "Gameweek"},
+                {"field": "value", "title": "Value"}
+            ]
+        }
+    };
+
+    await renderChart("lineChart", "lineError", spec);
+}
+
+async function drawBarChart() {
+    const teamOne = document.getElementById("teamOneSelect").value;
+    const teamTwo = document.getElementById("teamTwoSelect").value;
+    const statistic = document.getElementById("comparisonStat").value;
+
+    const values = [
+        {team: teamOne, value: getTeamAverage(teamOne, statistic)},
+        {team: teamTwo, value: getTeamAverage(teamTwo, statistic)}
+    ];
+
+    const spec = {
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "width": 650,
+        "height": 250,
+        "data": {"values": values},
+        "mark": "bar",
+        "encoding": {
+            "x": {
+                "field": "team",
+                "type": "nominal",
+                "title": "Team"
+            },
+            "y": {
+                "field": "value",
+                "type": "quantitative",
+                "title": "Average " + statistic
+            },
+            "color": {
+                "field": "team",
+                "type": "nominal",
+                "scale": {
+                    "domain": [teamOne, teamTwo],
+                    "range": [getTeamColour(teamOne), getTeamColour(teamTwo)]
+                },
+                "legend": null
+            },
+            "tooltip": [
+                {"field": "team"},
+                {"field": "value", "format": ".2f"}
+            ]
+        }
+    };
+
+    await renderChart("barChart", "barError", spec);
+}
+
+async function drawSpiderChart() {
+    const teamOne = document.getElementById("teamOneSelect").value;
+    const teamTwo = document.getElementById("teamTwoSelect").value;
+
+    const statistics = [
+        "totalScoringAtt",
+        "ontargetScoringAtt",
+        "expectedGoals",
+        "possessionPercentage",
+        "cornerTaken"
+    ];
+
+    const values = [];
+
+    statistics.forEach(statistic => {
+        const valueOne = getTeamAverage(teamOne, statistic);
+        const valueTwo = getTeamAverage(teamTwo, statistic);
+        const maximum = Math.max(valueOne, valueTwo, 1);
+
+        values.push(
+            {team: teamOne, statistic, value: valueOne / maximum},
+            {team: teamTwo, statistic, value: valueTwo / maximum}
+        );
+    });
+
+    const spec = {
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "width": 350,
+        "height": 350,
+        "data": {"values": values},
+        "mark": {
+            "type": "line",
+            "point": true,
+            "strokeWidth": 3
+        },
+        "encoding": {
+            "theta": {
+                "field": "statistic",
+                "type": "nominal",
+                "sort": statistics
+            },
+            "radius": {
+                "field": "value",
+                "type": "quantitative",
+                "scale": {"domain": [0, 1]}
+            },
+            "color": {
+                "field": "team",
+                "type": "nominal",
+                "scale": {
+                    "domain": [teamOne, teamTwo],
+                    "range": [getTeamColour(teamOne), getTeamColour(teamTwo)]
+                }
+            },
+            "detail": {"field": "team"},
+            "order": {
+                "field": "statistic",
+                "type": "nominal",
+                "sort": statistics
+            },
+            "tooltip": [
+                {"field": "team"},
+                {"field": "statistic"},
+                {"field": "value", "format": ".2f"}
+            ]
+        }
+    };
+
+    await renderChart("spiderChart", "spiderError", spec);
+}
+
+async function drawHeatmap() {
+    const statistic = document.getElementById("heatmapStat").value;
+
+    const values = allData.map(row => ({
+        team: row.team,
+        gameweek: numberValue(row.gameweek),
+        value: numberValue(row[statistic])
+    })).filter(row => row.gameweek > 0);
+
+    const spec = {
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "width": 650,
+        "height": 550,
+        "data": {"values": values},
+        "mark": "rect",
+        "encoding": {
+            "x": {
+                "field": "gameweek",
+                "type": "ordinal",
+                "title": "Gameweek"
+            },
+            "y": {
+                "field": "team",
+                "type": "nominal",
+                "sort": "-x",
+                "title": "Team"
+            },
+            "color": {
+                "field": "value",
+                "type": "quantitative",
+                "scale": {"scheme": "blues"},
+                "title": statistic
+            },
+            "tooltip": [
+                {"field": "team"},
+                {"field": "gameweek"},
+                {"field": "value", "format": ".2f"}
+            ]
+        }
+    };
+
+    await renderChart("heatmapChart", "heatmapError", spec);
+}
+
+function getLeagueTable(gameweek) {
+    const standings = {};
+
+    teams.forEach(team => {
+        standings[team] = {
+            team,
+            played: 0,
+            goalsFor: 0,
+            goalsAgainst: 0,
+            points: 0
+        };
+    });
+
+    completedMatches
+        .filter(match => match.gameweek <= gameweek)
+        .forEach(match => {
+            const home = standings[match.home];
+            const away = standings[match.away];
+
+            if (!home || !away) return;
+
+            home.played++;
+            away.played++;
+
+            home.goalsFor += match.homeGoals;
+            home.goalsAgainst += match.awayGoals;
+
+            away.goalsFor += match.awayGoals;
+            away.goalsAgainst += match.homeGoals;
+
+            if (match.homeGoals > match.awayGoals) {
+                home.points += 3;
+            } else if (match.homeGoals < match.awayGoals) {
+                away.points += 3;
+            } else {
+                home.points++;
+                away.points++;
+            }
+        });
+
+    return Object.values(standings).sort((a, b) => {
+        if (b.points !== a.points) return b.points - a.points;
+
+        const goalDifferenceA = a.goalsFor - a.goalsAgainst;
+        const goalDifferenceB = b.goalsFor - b.goalsAgainst;
+
+        if (goalDifferenceB !== goalDifferenceA) {
+            return goalDifferenceB - goalDifferenceA;
+        }
+
+        return b.goalsFor - a.goalsFor;
+    });
+}
+
+async function drawRaceChart() {
+    if (!raceAvailable) {
+        document.getElementById("raceChart").innerHTML =
+            "<p>Points Race is unavailable because match results could not be matched.</p>";
+        return;
+    }
+
+    const gameweek = Number(document.getElementById("gameweekSlider").value);
+    const table = getLeagueTable(gameweek);
+
+    const values = table.map((team, index) => ({
+        team: team.team,
+        points: team.points,
+        position: index + 1,
+        played: team.played
+    }));
+
+    const spec = {
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "width": 650,
+        "height": 550,
+        "data": {"values": values},
+        "mark": {
+            "type": "bar",
+            "cornerRadiusEnd": 4
+        },
+        "encoding": {
+            "y": {
+                "field": "team",
+                "type": "nominal",
+                "sort": {
+                    "field": "points",
+                    "order": "descending"
+                },
+                "title": "Team"
+            },
+            "x": {
+                "field": "points",
+                "type": "quantitative",
+                "title": "Points"
+            },
+            "color": {
+                "field": "team",
+                "type": "nominal",
+                "scale": {
+                    "domain": teams,
+                    "range": teams.map(getTeamColour)
+                },
+                "legend": null
+            },
+            "tooltip": [
+                {"field": "position", "title": "Position"},
+                {"field": "team", "title": "Team"},
+                {"field": "points", "title": "Points"},
+                {"field": "played", "title": "Played"}
+            ]
+        }
+    };
+
+    await renderChart("raceChart", "raceError", spec);
+}
+
+async function updateRace() {
+    const slider = document.getElementById("gameweekSlider");
+
+    document.getElementById("gameweekValue").textContent = slider.value;
+
+    await drawRaceChart();
+}
+
+async function drawAllCharts() {
+    updateOverview();
+
+    await drawLineChart();
+    await drawBarChart();
+    await drawSpiderChart();
+    await drawHeatmap();
+    await updateRace();
+}
+
+document.querySelectorAll(".tab").forEach(button => {
+    button.addEventListener("click", async () => {
+        document.querySelectorAll(".tab").forEach(tab => {
+            tab.classList.remove("active");
+        });
+
+        document.querySelectorAll(".tab-content").forEach(section => {
+            section.classList.remove("active");
+        });
+
+        button.classList.add("active");
+        document.getElementById(button.dataset.tab).classList.add("active");
+
+        if (button.dataset.tab === "overview") await drawLineChart();
+
+        if (button.dataset.tab === "comparison") {
+            await drawBarChart();
+            await drawSpiderChart();
+        }
+
+        if (button.dataset.tab === "heatmap") await drawHeatmap();
+        if (button.dataset.tab === "race") await updateRace();
+    });
+});
+
+document.getElementById("teamSelect").addEventListener("change", () => {
+    updateOverview();
+    drawLineChart();
+});
+
+document.getElementById("overviewStat").addEventListener("change", drawLineChart);
+
+["teamOneSelect", "teamTwoSelect"].forEach(id => {
+    document.getElementById(id).addEventListener("change", () => {
+        drawBarChart();
+        drawSpiderChart();
+    });
+});
+
+document.getElementById("comparisonStat").addEventListener("change", drawBarChart);
+document.getElementById("heatmapStat").addEventListener("change", drawHeatmap);
+document.getElementById("gameweekSlider").addEventListener("input", updateRace);
+
+document.getElementById("playRace").addEventListener("click", () => {
+    if (!raceAvailable || raceInterval) return;
+
+    const slider = document.getElementById("gameweekSlider");
+
+    if (Number(slider.value) >= maximumGameweek) {
+        slider.value = 1;
+        updateRace();
+    }
+
+    raceInterval = setInterval(async () => {
+        if (Number(slider.value) >= maximumGameweek) {
+            clearInterval(raceInterval);
+            raceInterval = null;
+            return;
+        }
+
+        slider.value = Number(slider.value) + 1;
+        await updateRace();
+    }, 800);
+});
+
+document.getElementById("pauseRace").addEventListener("click", () => {
+    clearInterval(raceInterval);
+    raceInterval = null;
+});
+
+document.getElementById("restartRace").addEventListener("click", () => {
+    clearInterval(raceInterval);
+    raceInterval = null;
+
+    document.getElementById("gameweekSlider").value = 1;
+    updateRace();
+});
+
+async function loadDashboard() {
+    const season = seasonSelect.value;
+
+    mainStatus.textContent = "Loading statistics...";
+    raceStatus.textContent = "Loading match results...";
+
+    clearInterval(raceInterval);
+    raceInterval = null;
+
+    allData = [];
+    resultsData = [];
+    completedMatches = [];
+    raceAvailable = false;
+
+    document.querySelectorAll(".chart").forEach(chart => {
+        chart.innerHTML = "";
+    });
+
+    document.querySelectorAll(".chart-error").forEach(error => {
+        error.textContent = "";
+    });
+
+    try {
+        allData = await loadStats(season);
+
+        if (!allData.length) {
+            throw new Error("The statistics file contains no data.");
+        }
+
+        populateTeamSelects();
+
+        const gameweeks = allData
+            .map(row => numberValue(row.gameweek))
+            .filter(value => value > 0);
+
+        maximumGameweek = Math.max(...gameweeks, 38);
+
+        const slider = document.getElementById("gameweekSlider");
+        slider.max = maximumGameweek;
+        slider.value = 1;
+
+        await drawAllCharts();
+
+        mainStatus.textContent = "Statistics loaded successfully.";
+
+        try {
+            await loadResults(season);
+            await drawRaceChart();
+        } catch (error) {
+            resultsData = [];
+            completedMatches = [];
+            raceAvailable = false;
+
+            raceStatus.textContent = "Points Race unavailable: " + error.message;
+
+            document.getElementById("raceChart").innerHTML =
+                "<p>Match results could not be loaded. The other charts remain available.</p>";
+        }
+
+    } catch (error) {
+        mainStatus.textContent = "Loading error: " + error.message;
+        console.error("Dashboard loading error:", error);
+    }
+}
+
+seasonSelect.addEventListener("change", loadDashboard);
+
+loadDashboard();
+
+</script>
+
+<style>
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    font-family: Arial, sans-serif;
+    background: #f4f6f9;
+    color: #222;
+}
+
+header {
+    background: #172b4d;
+    color: white;
+    padding: 28px 5%;
+}
+
+header h1 {
+    margin: 0 0 8px;
+}
+
+header p {
+    margin: 0;
+    color: #d6deeb;
+}
+
+main {
+    max-width: 1200px;
+    margin: 25px auto;
+    padding: 0 20px;
+}
+
+h2 {
+    margin-top: 0;
+    color: #172b4d;
+}
+
+.controls {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 22px;
+}
+
+label {
+    font-weight: bold;
+}
+
+select {
+    padding: 9px 12px;
+    border: 1px solid #ccd2dc;
+    border-radius: 5px;
+    background: white;
+    font-size: 14px;
+}
+
+.tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 25px 0;
+    border-bottom: 1px solid #d6dce5;
+}
+
+.tab {
+    padding: 12px 20px;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    font-size: 15px;
+    color: #526078;
+}
+
+.tab.active {
+    color: #172b4d;
+    border-bottom: 3px solid #2878d0;
+    font-weight: bold;
+}
+
+.tab-content {
+    display: none;
+}
+
+.tab-content.active {
+    display: block;
+}
+
+.summary-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 15px;
+    margin-bottom: 22px;
+}
+
+.summary-card {
+    background: white;
+    padding: 20px;
+    border-radius: 8px;
+    border: 1px solid #e0e4eb;
+}
+
+.summary-card h3 {
+    margin: 0;
+    font-size: 14px;
+    color: #657188;
+}
+
+.summary-card p {
+    margin: 12px 0 0;
+    font-size: 26px;
+    font-weight: bold;
+    color: #172b4d;
+}
+
+.chart-card {
+    background: white;
+    padding: 20px;
+    margin-bottom: 22px;
+    border: 1px solid #e0e4eb;
+    border-radius: 8px;
+    overflow-x: auto;
+}
+
+.chart-card h3 {
+    margin-top: 0;
+    color: #172b4d;
+}
+
+.chart {
+    width: 100%;
+    min-height: 100px;
+}
+
+.chart-error {
+    color: #b42318;
+    font-size: 13px;
+}
+
+.race-controls {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 20px;
+}
+
+.race-controls button {
+    padding: 10px 20px;
+    border: none;
+    border-radius: 5px;
+    background: #172b4d;
+    color: white;
+    cursor: pointer;
+}
+
+.race-controls button:hover {
+    background: #2878d0;
+}
+
+.slider-container {
+    margin: 20px 0;
+}
+
+.slider-container label {
+    display: block;
+    margin-bottom: 12px;
+}
+
+input[type="range"] {
+    width: 100%;
+    cursor: pointer;
+}
+
+#raceStatus,
+#mainStatus,
+.description {
+    color: #526078;
+    font-size: 14px;
+}
+
+#mainStatus {
+    margin-top: 20px;
+}
+
+@media (max-width: 650px) {
+    .summary-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .controls {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    select {
+        width: 100%;
+    }
+
+    .tab {
+        padding: 10px;
+    }
+}
+
+</style>
+
+</body>
+</html>
